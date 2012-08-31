@@ -531,6 +531,60 @@ proc ::parsetcl::reparse_Lb_as_script {tree_var index parsed} {
       return 0
    }
 }
+# Utility proc added for converting the {pattern condition*} argument
+# of a switch statement to a list of command arguments appended to the
+# existing switch statement argument.
+proc ::parsetcl::reparse_Lb_as_command_args {tree_var index parsed} {
+   upvar 1 $tree_var tree
+   set node [lindex $tree $index]
+   switch -- [lindex $node 0] Lb - Lr - Lq {
+      set base [expr {[lindex $node 1 0] + 1}]
+      if {[lindex $node 0] eq "Lb"} then {
+         set script [string range $parsed $base\
+           [expr {[lindex $node 1 1] - 1}]]
+      } else {
+         set script [lindex $node 2]
+      }
+       # Add a dummy command so that the actual script is parsed as
+       # command arguments
+       set script "dummy $script"
+       set parsed_script [offset_intervals [basic_parse_script $script] [expr ${base}-6]]
+       set command_args [lrange [lindex $parsed_script 3] 4 end]
+
+       # Remove existing node and add new nodes
+       if {[llength $index] == 1} {
+           set index [lindex $index 0]
+           set tree [lreplace $tree $index $index]
+           foreach newnode $command_args {
+             set tree [linsert $tree $index $newnode]
+             if {![string match "end*" $index]} {
+               incr index
+             }
+           }
+       } else {
+           set index_in_subtree [lindex $index end]
+           set subtree_index    [lrange $index 0 end-1]
+           set subtree [lindex $tree $subtree_index]
+           set subtree [lreplace $subtree $index_in_subtree $index_in_subtree]
+           foreach newnode $command_args {
+             set subtree [linsert $subtree $index_in_subtree $newnode]
+             if {![string match "end*" $index_in_subtree]} {
+               incr index_in_subtree
+             }
+           }
+           lset tree $subtree_index $subtree
+       }
+
+      if {[lindex $node 0] eq "Lb"} then {
+         return 2
+      } else {
+         return 1
+      }
+   } default {
+      return 0
+   }
+}
+
 proc ::parsetcl::walk_tree {tree_var index_var args} {
    upvar 1 $tree_var tree $index_var idxL
    set idxL [list]
@@ -568,6 +622,31 @@ proc ::parsetcl::simple_parse_script {script} {
             }
             reparse_Lb_as_script tree [linsert $indices end $i]\
               $script
+         }
+      } switch {
+         # skip over the options and string
+         for {set i 4} {$i < [llength [lindex $tree $indices]]}\
+           {incr i} {
+            if {![string match "-*" [lindex [lindex $tree $indices] $i 2]]} {
+              break
+            }
+         }
+         incr i
+         set remaining_args [lrange [lindex $tree $indices] $i end]
+         # The patterns and conditions are either 1 bracketed
+         # argument or pairs of patterns with conditions
+         if {[llength $remaining_args] == 1} {
+           reparse_Lb_as_command_args tree [linsert $indices end end] $script
+         } elseif {[expr {[llength $remaining_args]%2}] != 0} {
+           error "Not a valid switch command"
+         }
+         # Foreach Lb element in the resulting list, parse it as
+         # a script. These should be the conditions in the
+         # Mb node.
+         for {set j [expr $i+1]} {$j < [llength [lindex $tree $indices]]} {incr j 2} {
+           if {[lindex [lindex $tree $indices] $j 0] == "Lb"} {
+              reparse_Lb_as_script tree [linsert $indices end $j] $script
+           }
          }
       } while {
          reparse_Lb_as_Mb     tree [linsert $indices end 4] $script
