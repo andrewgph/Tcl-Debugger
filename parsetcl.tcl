@@ -545,35 +545,45 @@ proc ::parsetcl::reparse_Lb_as_command_args {tree_var index parsed} {
       } else {
          set script [lindex $node 2]
       }
-       # Add a dummy command so that the actual script is parsed as
-       # command arguments
-       set script "dummy $script"
-       set parsed_script [offset_intervals [basic_parse_script $script] [expr ${base}-6]]
-       set command_args [lrange [lindex $parsed_script 3] 4 end]
 
-       # Remove existing node and add new nodes
-       if {[llength $index] == 1} {
-           set index [lindex $index 0]
-           set tree [lreplace $tree $index $index]
-           foreach newnode $command_args {
-             set tree [linsert $tree $index $newnode]
-             if {![string match "end*" $index]} {
-               incr index
-             }
-           }
-       } else {
-           set index_in_subtree [lindex $index end]
-           set subtree_index    [lrange $index 0 end-1]
-           set subtree [lindex $tree $subtree_index]
-           set subtree [lreplace $subtree $index_in_subtree $index_in_subtree]
-           foreach newnode $command_args {
-             set subtree [linsert $subtree $index_in_subtree $newnode]
-             if {![string match "end*" $index_in_subtree]} {
-               incr index_in_subtree
-             }
-           }
-           lset tree $subtree_index $subtree
-       }
+      # Parse all the words that you can from the script text
+      # Skip any whitespace or newlines between words
+      set script_index 0
+      flush_whitespace $script script_index 1
+      set res {}
+      while {$script_index < [string length $script]} {
+          set next [parse_word $script script_index 0]
+          set next [offset_intervals $next $base]
+          flush_whitespace $script script_index 1
+          if {[lindex $next 0] ne "Np"} {
+              lappend res $next
+          }
+      }
+      set command_args $res
+
+      # Remove existing node and add new nodes
+      if {[llength $index] == 1} {
+          set index [lindex $index 0]
+          set tree [lreplace $tree $index $index]
+          foreach newnode $command_args {
+            set tree [linsert $tree $index $newnode]
+            if {![string match "end*" $index]} {
+              incr index
+            }
+          }
+      } else {
+          set index_in_subtree [lindex $index end]
+          set subtree_index    [lrange $index 0 end-1]
+          set subtree [lindex $tree $subtree_index]
+          set subtree [lreplace $subtree $index_in_subtree $index_in_subtree]
+          foreach newnode $command_args {
+            set subtree [linsert $subtree $index_in_subtree $newnode]
+            if {![string match "end*" $index_in_subtree]} {
+              incr index_in_subtree
+            }
+          }
+          lset tree $subtree_index $subtree
+      }
 
       if {[lindex $node 0] eq "Lb"} then {
          return 2
@@ -669,6 +679,7 @@ proc ::parsetcl::simple_parse_script {script} {
          }
       }
    }
+
    return $tree
 }
 proc ::parsetcl::reinsert_indentation {tree script} {
