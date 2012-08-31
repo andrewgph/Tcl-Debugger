@@ -1,4 +1,4 @@
-namespace eval debugger {
+namespace eval ot::debug {
 
 	variable BREAKPOINTS
 	variable debug_up_level  0
@@ -10,70 +10,70 @@ namespace eval debugger {
 
 }
 
-proc debugger::debug_tree {tree} {
+proc ot::debug::debug_tree {tree} {
 	eval "debug_$tree"
 }
 
-proc debugger::debug_Lr {interval text args} {
+proc ot::debug::debug_Lr {interval text args} {
 	return $text
 }
 
-proc debugger::debug_Lb {interval text args} {
+proc ot::debug::debug_Lb {interval text args} {
 	return \{$text\}
 }
 
-proc debugger::debug_Lq {interval text args} {
+proc ot::debug::debug_Lq {interval text args} {
 	return \"$text\"
 }
 
-proc debugger::debug_Sb {interval text args} {
+proc ot::debug::debug_Sb {interval text args} {
 	return "\\$text"
 }
 
-proc debugger::debug_Nc {interval text args} {
+proc ot::debug::debug_Nc {interval text args} {
 	return ""
 }
 
-proc debugger::debug_Mb {interval text args} {
+proc ot::debug::debug_Mb {interval text args} {
 	foreach a $args {
 		append result [eval "debug_$a"]
 	}
 	return \{$result\}
 }
 
-proc debugger::debug_Sv {interval text args} {
+proc ot::debug::debug_Sv {interval text args} {
 	return "\$[eval debug_[lindex $args 0]]"
 }
 
-proc debugger::debug_Sa {interval text args} {
+proc ot::debug::debug_Sa {interval text args} {
 	foreach a [lrange $args 1 end] {
 		append result [eval "debug_$a"]
 	}
 	return "\$[eval debug_[lindex $args 0]]($result)"
 }
 
-proc debugger::debug_Sc {interval text args} {
+proc ot::debug::debug_Sc {interval text args} {
 	foreach a $args {
 		append cmd " " [eval "debug_$a"]
 	}
 	return ${cmd}
 }
 
-proc debugger::debug_Mr {interval text args} {
+proc ot::debug::debug_Mr {interval text args} {
 	foreach a $args {
 		append result [eval "debug_$a"]
 	}
 	return ${result}
 }
 
-proc debugger::debug_Mq {interval text args} {
+proc ot::debug::debug_Mq {interval text args} {
 	foreach a $args {
 		append result [eval "debug_$a"]
 	}
 	return \"${result}\"
 }
 
-proc debugger::debug_Cd {interval text args} {
+proc ot::debug::debug_Cd {interval text args} {
 	variable BREAKPOINTS
 	variable debug_up_level
 	variable debug_proc_body
@@ -95,8 +95,7 @@ proc debugger::debug_Cd {interval text args} {
 			return [_handle_if_statement $debug_proc_name $line_number $args]
 		}
 		"switch" {
-#			return [_handle_switch_statement $debug_proc_name $line_number $proc_args]
-			return [debug_repl $debug_proc_name $line_number $cmd $args]
+			return [_handle_switch_statement $debug_proc_name $line_number $args]
 		}
 		"while" {
 			return [_handle_while_statement $debug_proc_name $line_number $args]
@@ -132,7 +131,7 @@ proc debugger::debug_Cd {interval text args} {
 	}
 }
 
-proc debugger::_handle_if_statement {proc_name line_number proc_args} {
+proc ot::debug::_handle_if_statement {proc_name line_number proc_args} {
 
 	puts $proc_args
 
@@ -170,22 +169,42 @@ proc debugger::_handle_if_statement {proc_name line_number proc_args} {
 # The parsing doesn't parse the switch conditions
 # for now, we just evaluate the switch statement as a whole
 # TODO! Fix the parsetcl parsing of switch statements and update this proc
-proc debugger::_handle_switch_statement {proc_name line_number proc_args} {
-	set switch_args [lrange $proc_args 0 end-1]
-	set switch_body [lindex $proc_args end]
+proc ot::debug::_handle_switch_statement {proc_name line_number proc_args} {
+
+	for {set i 0} {$i < [llength $proc_args]} {incr i} {
+		if {![string match "-*" [lindex $proc_args $i]]} {
+			break
+		}
+	}
+
+	puts $proc_args
+
+	set options_args   [lrange $proc_args 0 $i]
+	set switch_arg     [lindex $proc_args $i+1]
+	set condition_args [lrange $proc_args $i+2 end]
 
 	set switch_stmt "switch "
 
-	foreach arg $switch_args {
+	foreach arg $options_args {
 		append switch_stmt [eval "debug_$arg"] " "
 	}
 
-	append switch_stmt [eval "debug_$switch_body"] " "
+	append switch_stmt [eval "debug_$switch_arg"] " "
 
-	return
+	puts $condition_args
+
+	foreach {pattern condition} $condition_args {
+		append switch_stmt [eval "debug_$pattern"] " "
+		append switch_stmt "{set ret \[eval \"debug_$condition\"\]}" " "
+	}
+
+	puts $switch_stmt
+
+	return [eval $switch_stmt]
+
 }
 
-proc debugger::_handle_while_statement {proc_name line_number proc_args} {
+proc ot::debug::_handle_while_statement {proc_name line_number proc_args} {
 
 	set while_condition [lindex $proc_args 0]
 	set while_body      [lindex $proc_args 1]
@@ -200,7 +219,7 @@ proc debugger::_handle_while_statement {proc_name line_number proc_args} {
 
 }
 
-proc debugger::_handle_for_statement {proc_name line_number proc_args} {
+proc ot::debug::_handle_for_statement {proc_name line_number proc_args} {
 
 	set for_init  [lindex $proc_args 0]
 	set for_check [eval "debug_[lindex $proc_args 1]"]
@@ -214,7 +233,7 @@ proc debugger::_handle_for_statement {proc_name line_number proc_args} {
 	return $ret
 }
 
-proc debugger::_handle_foreach_statement {proc_name line_number proc_args} {
+proc ot::debug::_handle_foreach_statement {proc_name line_number proc_args} {
 
 	variable debug_up_level
 
@@ -238,7 +257,7 @@ proc debugger::_handle_foreach_statement {proc_name line_number proc_args} {
 	return $ret
 }
 
-proc debugger::debug_Rs {interval text args} {
+proc ot::debug::debug_Rs {interval text args} {
 	variable debug_return
 
 	foreach a $args {
@@ -252,11 +271,11 @@ proc debugger::debug_Rs {interval text args} {
 
 }
 
-proc debugger::calculate_line_number {interval string} {
+proc ot::debug::calculate_line_number {interval string} {
 	return [expr {[regexp -all "\n" [string range $string 0 [lindex $interval 0]]]+1}]
 }
 
-proc debugger::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_return 0} {control_stmt ""}} {
+proc ot::debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_return 0} {control_stmt ""}} {
 
 	variable BREAKPOINTS
 	variable debug_up_level
@@ -328,7 +347,7 @@ proc debugger::debug_repl {proc_name line_number cmd args {step_into_proc ""} {i
 					}
 					set breakpoint_proc_name   [lindex $words 1]
 					set breakpoint_line_number [lindex $words 2]
-					debugger::add_breakpoint $breakpoint_proc_name $breakpoint_line_number
+					ot::debug::add_breakpoint $breakpoint_proc_name $breakpoint_line_number
 				}
 				"remove_breakpoint *" {
 					set words [regexp -inline -all -- {\S+} $user_command]
@@ -338,7 +357,7 @@ proc debugger::debug_repl {proc_name line_number cmd args {step_into_proc ""} {i
 					}
 					set breakpoint_proc_name   [lindex $words 1]
 					set breakpoint_line_number [lindex $words 2]
-					debugger::remove_breakpoint $breakpoint_proc_name $breakpoint_line_number
+					ot::debug::remove_breakpoint $breakpoint_proc_name $breakpoint_line_number
 				}
 				default {
 					if {[catch {
@@ -362,7 +381,7 @@ proc debugger::debug_repl {proc_name line_number cmd args {step_into_proc ""} {i
 
 }
 
-proc debugger::debug_proc {name} {
+proc ot::debug::debug_proc {name} {
 
 	variable BREAKPOINTS
 	variable debug_up_level [expr {[info level]-1}]
@@ -397,11 +416,11 @@ proc debugger::debug_proc {name} {
 	return [list 1 $ret]
 }
 
-proc debugger::add_breakpoint {proc_name line_number} {
+proc ot::debug::add_breakpoint {proc_name line_number} {
 	variable BREAKPOINTS
 
 	if {![string is integer $line_number] && $line_number > 0} {
-		error "debugger::add_breakpoint: $line_number needs to be an integer greater than 0"
+		error "ot::debug::add_breakpoint: $line_number needs to be an integer greater than 0"
 	}
 
 	if {[lsearch $BREAKPOINTS(procs) $proc_name] == -1} {
@@ -417,7 +436,7 @@ proc debugger::add_breakpoint {proc_name line_number} {
 	}
 }
 
-proc debugger::remove_breakpoint {proc_name line_number} {
+proc ot::debug::remove_breakpoint {proc_name line_number} {
 	variable BREAKPOINTS
 
 	if {[info exists BREAKPOINTS($proc_name,lines)] &&
@@ -431,7 +450,7 @@ proc debugger::remove_breakpoint {proc_name line_number} {
 
 rename proc _proc
 _proc proc {name args body} {
-	 set debug "set debug_res \[debugger::debug_proc $name\]; if {\[lindex \$debug_res 0\]} {return \[lindex \$debug_res 1\]};\n"
+	 set debug "set debug_res \[ot::debug::debug_proc $name\]; if {\[lindex \$debug_res 0\]} {return \[lindex \$debug_res 1\]};\n"
 	 append debug $body
 	 _proc $name $args $debug
 }
