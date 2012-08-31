@@ -18,7 +18,7 @@ proc test_call {} {
 	puts $res
 }
 
-debugger::add_breakpoint test_basic 4
+ot::debug::add_breakpoint test_basic 4
 
 proc test_for {} {
 
@@ -28,7 +28,7 @@ proc test_for {} {
 
 }
 
-debugger::add_breakpoint test_for 2
+ot::debug::add_breakpoint test_for 2
 
 proc test_foreach {} {
 
@@ -38,7 +38,7 @@ proc test_foreach {} {
 
 }
 
-debugger::add_breakpoint test_foreach 2
+ot::debug::add_breakpoint test_foreach 2
 
 proc test_while {} {
 
@@ -51,7 +51,7 @@ proc test_while {} {
 
 }
 
-debugger::add_breakpoint test_while 4
+ot::debug::add_breakpoint test_while 4
 
 proc test_if {} {
 
@@ -65,4 +65,25 @@ proc test_if {} {
 
 }
 
-debugger::add_breakpoint test_if 2
+ot::debug::add_breakpoint test_if 2
+
+proc test_switch {} {
+
+	switch -glob -- "hello" {
+		"world" {
+			puts world
+		}
+		"hel*" {
+			puts hel
+		}
+		"hello" {
+			puts hello
+		}
+		default {
+			puts default
+		}
+	}
+
+}
+
+ot::debug::add_breakpoint test_switch 2

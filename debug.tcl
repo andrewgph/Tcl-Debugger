@@ -133,15 +133,13 @@ proc ot::debug::debug_Cd {interval text args} {
 
 proc ot::debug::_handle_if_statement {proc_name line_number proc_args} {
 
-	puts $proc_args
-
 	set if_condition  [lindex $proc_args 0]
 	set if_result     [lindex $proc_args 1]
 	set check_command [eval debug_$if_condition]
 
 	# Check what the if_condition evaluated to in the proc context
 	# If necessary loop through elseif and else statements
-	set check [debug_repl $proc_name $line_number $check_command {} "" 0 "if"]
+	set check [debug_repl $proc_name $line_number $check_command {} "" 0 "if $check_command"]
 	if {$check} {
 		return [eval "debug_$if_result"]
 	}
@@ -154,7 +152,7 @@ proc ot::debug::_handle_if_statement {proc_name line_number proc_args} {
 		set elseif_result    [lindex $proc_args [expr {$i+2}]]
 
 		set check_command [eval debug_$elseif_condition]
-		set check [debug_repl $proc_name $line_number $check_command {} "" 0 "elseif"]
+		set check [debug_repl $proc_name $line_number $check_command {} "" 0 "elseif $check_command"]
 		if {$check} {
 			return [eval "debug_$elseif_result"]
 		}
@@ -172,16 +170,14 @@ proc ot::debug::_handle_if_statement {proc_name line_number proc_args} {
 proc ot::debug::_handle_switch_statement {proc_name line_number proc_args} {
 
 	for {set i 0} {$i < [llength $proc_args]} {incr i} {
-		if {![string match "-*" [lindex $proc_args $i]]} {
+		if {![string match "-*" [lindex [lindex $proc_args $i] 2]]} {
 			break
 		}
 	}
 
-	puts $proc_args
-
-	set options_args   [lrange $proc_args 0 $i]
-	set switch_arg     [lindex $proc_args $i+1]
-	set condition_args [lrange $proc_args $i+2 end]
+	set options_args   [lrange $proc_args 0 $i-1]
+	set switch_arg     [lindex $proc_args $i]
+	set condition_args [lrange $proc_args $i+1 end]
 
 	set switch_stmt "switch "
 
@@ -190,15 +186,25 @@ proc ot::debug::_handle_switch_statement {proc_name line_number proc_args} {
 	}
 
 	append switch_stmt [eval "debug_$switch_arg"] " "
-
-	puts $condition_args
+	set switch_display $switch_stmt
 
 	foreach {pattern condition} $condition_args {
 		append switch_stmt [eval "debug_$pattern"] " "
 		append switch_stmt "{set ret \[eval \"debug_$condition\"\]}" " "
 	}
 
-	puts $switch_stmt
+	# Use a dummy command here to trigger the debug_repl when the
+	# switch command is evaluated.
+
+	# We need a dummy command because the switch statement will
+	# actually by evaluated at this uplevel.
+
+	# The switch command is evaluated at this uplevel so that we can
+	# trigger breakpoints on any condition bodies that are evaluated
+	# as a result of the switch command.
+
+	debug_repl $proc_name $line_number true {} "" 0 $switch_display
+
 
 	return [eval $switch_stmt]
 
@@ -211,7 +217,7 @@ proc ot::debug::_handle_while_statement {proc_name line_number proc_args} {
 
 	set check_command [eval "debug_$while_condition"]
 
-	while {[debug_repl $proc_name $line_number $check_command {} "" 0 "while"]} {
+	while {[debug_repl $proc_name $line_number $check_command {} "" 0 "while $check_command"]} {
 		set ret   [eval "debug_$while_body"]
 	}
 
@@ -226,7 +232,7 @@ proc ot::debug::_handle_for_statement {proc_name line_number proc_args} {
 	set for_iter  [lindex $proc_args 2]
 	set for_body  [lindex $proc_args 3]
 
-	for {eval "debug_$for_init"} {[debug_repl $proc_name $line_number $for_check {} "" 0 "for"]} {eval "debug_$for_iter"} {
+	for {eval "debug_$for_init"} {[debug_repl $proc_name $line_number $for_check {} "" 0 "for $for_check"]} {eval "debug_$for_iter"} {
 		set ret [eval "debug_$for_body"]
 	}
 
@@ -296,7 +302,7 @@ proc ot::debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {
 	# If it's a control statement, prefix the command display with the
 	# control structure
 	if {$control_stmt != ""} {
-		set display_cmd "$control_stmt $cmd"
+		set display_cmd $control_stmt
 		set cmd "expr $cmd"
 	} else {
 		set display_cmd $cmd
