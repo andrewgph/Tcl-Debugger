@@ -125,7 +125,7 @@ proc debug::debug_Cd {interval text args} {
 			# Handle procs that can be stepped into. Check that the
 			# proc isn't a tcl command that can't be stepped into.
 			if {[lsearch [info commands] $cmd] == -1} {
-				return [debug_repl $debug_proc_name $line_number $cmd $args $proc_name]
+				return [debug_repl $debug_proc_name $line_number $cmd $args $cmd]
 			} else {
 				return [debug_repl $debug_proc_name $line_number $cmd $args]
 			}
