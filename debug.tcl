@@ -367,9 +367,11 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 				}
 				default {
 					if {[catch {
-						uplevel $up_level $user_command
+						set val [uplevel $up_level $user_command]
 					} msg]} {
 						puts $msg
+					} else {
+						puts $val
 					}
 				}
 			}
