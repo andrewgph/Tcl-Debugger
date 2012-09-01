@@ -1,6 +1,7 @@
 namespace eval debug {
 
 	variable BREAKPOINTS
+	variable PROCFILES
 	variable debug_up_level  0
 	variable debug_proc_body ""
 	variable debug_repl      0
@@ -284,10 +285,11 @@ proc debug::calculate_line_number {interval string} {
 proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_return 0} {control_stmt ""}} {
 
 	variable BREAKPOINTS
+	variable PROCFILES
 	variable debug_up_level
 	variable debug_repl
 
-	# Check whether we need to break on the line
+	# Check whether we need to break on the line.
 	if {[info exists BREAKPOINTS($proc_name,lines)] &&
 		[lsearch $BREAKPOINTS($proc_name,lines) $line_number] > -1} {
 		set debug_repl 1
@@ -310,11 +312,17 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 
 	set up_level [expr {[info level]-$debug_up_level}]
 
+	if {[info exists PROCFILES($proc_name)]} {
+		set filename [file tail $PROCFILES($proc_name)]
+	} else {
+		set filename ""
+	}
+
 	if {$debug_repl} {
 		puts "line $line_number: $display_cmd"
 		set get_user_input 1
 		while {$get_user_input} {
-			puts -nonewline ">"
+			puts -nonewline "$filename:$proc_name:$line_number>"
 			flush stdout
 			gets stdin user_command
 
@@ -368,6 +376,13 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 					set breakpoint_line_number [lindex $words 2]
 					debug::remove_breakpoint $breakpoint_proc_name $breakpoint_line_number
 				}
+				"filepath" {
+					if {[info exists PROCFILES($proc_name)]} {
+						puts $PROCFILES($proc_name)
+					} else {
+						puts "not available"
+					}
+				}
 				default {
 					if {[catch {
 						set val [uplevel $up_level $user_command]
@@ -399,6 +414,7 @@ proc debug::show_repl_usage {} {
 	puts "* step_into"
 	puts "* add_breakpoint <proc_name> <line_number>"
 	puts "* remove_breakpoint <proc_name> <line_number>"
+	puts "* filepath (shows absolute path of the file that the proc is sourced from)"
 	puts "Anything else is evaluated using uplevel in the context of the proc being debugged."
 }
 
@@ -455,6 +471,7 @@ proc debug::add_breakpoint {proc_name line_number} {
 	if {[lsearch $BREAKPOINTS($proc_name,lines) $line_number] == -1} {
 		lappend BREAKPOINTS($proc_name,lines) $line_number
 	}
+
 }
 
 proc debug::remove_breakpoint {proc_name line_number} {
@@ -471,6 +488,7 @@ proc debug::remove_breakpoint {proc_name line_number} {
 
 rename proc _proc
 _proc proc {name args body} {
+	 set ::debug::PROCFILES($name) [file join [pwd] [info script]]
 	 set debug "set debug_res \[debug::debug_proc $name\]; if {\[lindex \$debug_res 0\]} {return \[lindex \$debug_res 1\]};\n"
 	 append debug $body
 	 _proc $name $args $debug
