@@ -18,7 +18,7 @@ proc test_call {} {
 	puts $res
 }
 
-ot::debug::add_breakpoint test_basic 4
+debug::add_breakpoint test_basic 4
 
 proc test_for {} {
 
@@ -28,7 +28,7 @@ proc test_for {} {
 
 }
 
-ot::debug::add_breakpoint test_for 2
+debug::add_breakpoint test_for 2
 
 proc test_foreach {} {
 
@@ -38,7 +38,7 @@ proc test_foreach {} {
 
 }
 
-ot::debug::add_breakpoint test_foreach 2
+debug::add_breakpoint test_foreach 2
 
 proc test_while {} {
 
@@ -51,7 +51,7 @@ proc test_while {} {
 
 }
 
-ot::debug::add_breakpoint test_while 4
+debug::add_breakpoint test_while 4
 
 proc test_if {} {
 
@@ -65,7 +65,7 @@ proc test_if {} {
 
 }
 
-ot::debug::add_breakpoint test_if 2
+debug::add_breakpoint test_if 2
 
 proc test_switch {} {
 
@@ -86,4 +86,4 @@ proc test_switch {} {
 
 }
 
-ot::debug::add_breakpoint test_switch 2
+debug::add_breakpoint test_switch 2
