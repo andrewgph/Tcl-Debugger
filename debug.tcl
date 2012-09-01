@@ -148,19 +148,25 @@ proc debug::_handle_if_statement {proc_name line_number proc_args} {
 	set proc_args [lrange $proc_args 2 end]
 
 	# Loop through the elseif statements
-	for {set i 0} {$i < [expr {[llength $proc_args]-2}]} {set i [expr $i+3]} {
-		set elseif_condition [lindex $proc_args [expr {$i+1}]]
-		set elseif_result    [lindex $proc_args [expr {$i+2}]]
+	while {[lindex $proc_args 0 2] == "elseif"} {
+		set elseif_condition [lindex $proc_args 1]
+		set elseif_result    [lindex $proc_args 2]
 
 		set check_command [eval debug_$elseif_condition]
 		set check [debug_repl $proc_name $line_number $check_command {} "" 0 "elseif $check_command"]
 		if {$check} {
 			return [eval "debug_$elseif_result"]
 		}
+		set proc_args [lrange $proc_args 3 end]
 	}
 
-	# If we're at this stage, apply the else clause
-	return [eval "debug_[lindex $proc_args end]"]
+	# If there are two arguments left, evaluate them as an else clause
+	# Otherwise return nothing
+	if {[llength $proc_args] == 2} {
+		return [eval "debug_[lindex $proc_args end]"]
+	} else {
+		return
+	}
 
 }
 

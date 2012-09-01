@@ -53,7 +53,7 @@ proc test_while {} {
 
 debug::add_breakpoint test_while 4
 
-proc test_if {} {
+proc test_if_1 {} {
 
 	if {1 == 0} {
 		puts "wtf?"
@@ -65,7 +65,29 @@ proc test_if {} {
 
 }
 
-debug::add_breakpoint test_if 2
+debug::add_breakpoint test_if_1 2
+
+proc test_if_2 {} {
+
+	if {1 == 0} {
+		puts "wtf?"
+	}
+
+}
+
+debug::add_breakpoint test_if_2 2
+
+proc test_if_3 {} {
+
+	if {1 == 0} {
+		puts "wtf?"
+	} else {
+		puts "correct"
+	}
+
+}
+
+debug::add_breakpoint test_if_3 2
 
 proc test_switch {} {
 
