@@ -319,6 +319,9 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 			gets stdin user_command
 
 			switch -glob -- $user_command {
+				"help" {
+					show_repl_usage
+				}
 				"continue" {
 					set debug_repl 0
 					set get_user_input 0
@@ -387,6 +390,16 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 	set ret [uplevel $up_level $ret_command]
 	return $ret
 
+}
+
+proc debug::show_repl_usage {} {
+	puts "Available commands are:"
+	puts "* step"
+	puts "* continue"
+	puts "* step_into"
+	puts "* add_breakpoint <proc_name> <line_number>"
+	puts "* remove_breakpoint <proc_name> <line_number>"
+	puts "Anything else is evaluated using uplevel in the context of the proc being debugged."
 }
 
 proc debug::debug_proc {name} {
