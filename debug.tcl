@@ -448,9 +448,19 @@ proc debug::debug_proc {name} {
 
 	set body_commands [split [info body $name] "\n"]
 
-	# Remove the first 2 lines of the proc, which are the lines used
-	# to call this debug_proc
-	set body_commands [lrange $body_commands 2 end]
+	# Remove any lines at the beginning of the proc which begin with
+	# 'set debug_res', these have been added by the debug redefinition
+	# of the proc command.
+	while {[string match "set debug_res*debug::*debug_proc*" [lindex $body_commands 0]]} {
+		set body_commands [lrange $body_commands 1 end]
+	}
+
+	# Remove the next line if it's empty, it has also been added by
+	# the debug proc command.
+	if {[string trim [lindex $body_commands 0]] == ""} {
+		set body_commands [lrange $body_commands 1 end]
+	}
+
 	set debug_proc_body [join $body_commands "\n"]
 	set body_parsed [parsetcl::simple_parse_script $debug_proc_body]
 
