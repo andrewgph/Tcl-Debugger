@@ -22,8 +22,8 @@ Add the following to the top of the tcl file you want to debug.
 
 Breakpoints can be added and removed from procs at specific lines with the following procs:
 
-    ot::debug::add_breakpoint example_proc 2
-    ot::debug::remove_breakpoint example_proc 2
+    debug::add_breakpoint example_proc 2
+    debug::remove_breakpoint example_proc 2
 
 Once the debug repl has been triggered, the following commands are available:
 
