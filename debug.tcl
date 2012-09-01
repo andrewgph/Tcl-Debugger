@@ -2,12 +2,10 @@ namespace eval debug {
 
 	variable BREAKPOINTS
 	variable PROCFILES
-	variable debug_up_level  0
-	variable debug_proc_body ""
-	variable debug_repl      0
-	variable debug_proc_name ""
+	variable QUEUE
 
 	set BREAKPOINTS(procs) {}
+	set QUEUE(count) 0
 
 }
 
@@ -76,10 +74,13 @@ proc debug::debug_Mq {interval text args} {
 
 proc debug::debug_Cd {interval text args} {
 	variable BREAKPOINTS
-	variable debug_up_level
-	variable debug_proc_body
-	variable debug_return
-	variable debug_proc_name
+	variable QUEUE
+
+	set queue_item $QUEUE(count)
+	set debug_up_level  $QUEUE($queue_item,up_level)
+	set debug_proc_body $QUEUE($queue_item,proc_body)
+	set debug_return    $QUEUE($queue_item,return)
+	set debug_proc_name $QUEUE($queue_item,proc_name)
 
 	if {[lindex $debug_return 0]} {
 		return
@@ -112,7 +113,7 @@ proc debug::debug_Cd {interval text args} {
 				lappend proc_args [eval "debug_$a"]
 			}
 			set res [debug_repl $debug_proc_name $line_number $cmd $args "" 1]
-			set debug_return [list 1 $res]
+			set QUEUE($queue_item,return) [list 1 $res]
 			return $res
 		}
 		"vwait" -
@@ -265,16 +266,18 @@ proc debug::_handle_foreach_statement {proc_name line_number proc_args} {
 }
 
 proc debug::debug_Rs {interval text args} {
-	variable debug_return
+	variable QUEUE
+
+	set queue_item $QUEUE(count)
 
 	foreach a $args {
-		if {[lindex $debug_return 0]} {
+		if {[lindex $QUEUE($queue_item,return) 0]} {
 			break;
 		}
 		eval "debug_$a"
 	}
 
-	return [lindex $debug_return 1]
+	return [lindex $QUEUE($queue_item,return) 1]
 
 }
 
@@ -285,14 +288,16 @@ proc debug::calculate_line_number {interval string} {
 proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_return 0} {control_stmt ""}} {
 
 	variable BREAKPOINTS
+	variable QUEUE
 	variable PROCFILES
-	variable debug_up_level
-	variable debug_repl
+
+	# Get the current queue item
+	set queue_item $QUEUE(count)
 
 	# Check whether we need to break on the line.
 	if {[info exists BREAKPOINTS($proc_name,lines)] &&
 		[lsearch $BREAKPOINTS($proc_name,lines) $line_number] > -1} {
-		set debug_repl 1
+		set QUEUE($queue_item,debug_repl) 1
 	}
 
 	# Evaluate all the arguments for the command
@@ -310,7 +315,7 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 		set display_cmd $cmd
 	}
 
-	set up_level [expr {[info level]-$debug_up_level}]
+	set up_level [expr {[info level]-$QUEUE($queue_item,up_level)}]
 
 	if {[info exists PROCFILES($proc_name)]} {
 		set filename [file tail $PROCFILES($proc_name)]
@@ -318,7 +323,7 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 		set filename ""
 	}
 
-	if {$debug_repl} {
+	if {$QUEUE($queue_item,debug_repl)} {
 		puts "line $line_number: $display_cmd"
 		set get_user_input 1
 		while {$get_user_input} {
@@ -331,7 +336,7 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 					show_repl_usage
 				}
 				"continue" {
-					set debug_repl 0
+					set QUEUE($queue_item,debug_repl) 0
 					set get_user_input 0
 				}
 				"step" {
@@ -350,7 +355,7 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 					# necessarily being evaluated by the debug_proc May
 					# need to evaluate all procs in the debug_proc, so we
 					# can backtrack to the calling proc.
-					if {$debug_up_level > 1} {
+					if {$QUEUE($queue_item,up_level) > 1} {
 						set up_proc [uplevel $up_level {info level [expr {[info level]-1}]}]
 						lappend BREAKPOINTS(procs) $up_proc
 						lappend BREAKPOINTS($step_into_proc,lines) 0
@@ -421,11 +426,7 @@ proc debug::show_repl_usage {} {
 proc debug::debug_proc {name} {
 
 	variable BREAKPOINTS
-	variable debug_up_level [expr {[info level]-1}]
-	variable debug_proc_body
-	variable debug_repl
-	variable debug_return {0 {}}
-	variable debug_proc_name $name
+	variable QUEUE
 
 	if {[lsearch $BREAKPOINTS(procs) $name] == -1} {
 		return {0 {}}
@@ -435,6 +436,8 @@ proc debug::debug_proc {name} {
 	# breakpoint will be reached at the appropriate line.
 	if {[lsearch $BREAKPOINTS($name,lines) 0] > -1} {
 		set debug_repl 1
+	} else {
+		set debug_repl 0
 	}
 
 	set body_commands [split [info body $name] "\n"]
@@ -445,10 +448,23 @@ proc debug::debug_proc {name} {
 	set debug_proc_body [join $body_commands "\n"]
 	set body_parsed [parsetcl::simple_parse_script $debug_proc_body]
 
+	# Add the breakpoint to the current queue of active breakpoints
+	incr QUEUE(count)
+	set queue_count $QUEUE(count)
+	set QUEUE($queue_count,up_level)  [expr {[info level]-1}]
+	set QUEUE($queue_count,proc_body)  $debug_proc_body
+	set QUEUE($queue_count,debug_repl) $debug_repl
+	set QUEUE($queue_count,proc_name)  $name
+	set QUEUE($queue_count,return)    {0 {}}
+
 	# Traverse the parse of the proc body
 	# Halting at breakpoints
-	# The debug_return variable should be set during the traversal
+	# The QUEUE($queue_count,return) variable should be set during the traversal
 	set ret [debug_tree $body_parsed]
+
+	# Decrement the queue count, to remove the item from the queue
+	array unset QUEUE "$queue_count,*"
+	incr QUEUE(count) -1
 
 	return [list 1 $ret]
 }
@@ -486,10 +502,40 @@ proc debug::remove_breakpoint {proc_name line_number} {
 	}
 }
 
-rename proc _proc
-_proc proc {name args body} {
-	 set ::debug::PROCFILES($name) [file join [pwd] [info script]]
-	 set debug "set debug_res \[debug::debug_proc $name\]; if {\[lindex \$debug_res 0\]} {return \[lindex \$debug_res 1\]};\n"
-	 append debug $body
-	 _proc $name $args $debug
+set proc_defined 0
+set iter 1
+
+# Try to define the wrapper for proc Allow the debug wrapper proc to
+# rename the proc command arbitrary times. So the debug procs can
+# debug themselves.
+while {!$proc_defined} {
+	set proc_name "[string repeat {_} $iter]proc"
+	if {[info commands $proc_name] == ""} {
+
+		set debug_proc "debug::[string repeat {_} $iter]debug_proc"
+		rename debug::debug_proc $debug_proc
+
+		set proc_body {
+			set ::debug::PROCFILES($name) [file join [pwd] [info script]]}
+
+		append proc_body {
+			set debug "set debug_res \[}
+		append proc_body $debug_proc
+		append proc_body { $name\]; if {\[lindex \$debug_res 0\]} {return \[lindex \$debug_res 1\]};\n"
+		}
+
+		append proc_body {
+			append debug $body
+		}
+		append proc_body [subst {
+			$proc_name \$name \$args \$debug
+		}]
+
+		rename proc $proc_name
+		$proc_name proc {name args body} $proc_body
+
+		set proc_defined 1
+	} else {
+		incr iter
+	}
 }
