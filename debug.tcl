@@ -55,7 +55,12 @@ proc debug::debug_Sc {interval text args} {
 	foreach a $args {
 		append cmd " " [eval "debug_$a"]
 	}
-	return ${cmd}
+
+	if {[string trim $cmd] != ""} {
+		return ${cmd}
+	} else {
+		return {[]}
+	}
 }
 
 proc debug::debug_Mr {interval text args} {
@@ -518,6 +523,16 @@ proc debug::remove_breakpoint {proc_name line_number} {
 	}
 }
 
+proc debug::make_proc_body {debug_proc name body} {
+
+	set proc_body [subst {set debug_res \[$debug_proc {$name}\];}]
+	append proc_body {if {[lindex $debug_res 0]} {return [lindex $debug_res 1]};
+	}
+	append proc_body $body
+
+	return $proc_body
+}
+
 set proc_defined 0
 set iter 1
 
@@ -531,24 +546,11 @@ while {!$proc_defined} {
 		set debug_proc "debug::[string repeat {_} $iter]debug_proc"
 		rename debug::debug_proc $debug_proc
 
-		set proc_body {
-			set ::debug::PROCFILES($name) [file join [pwd] [info script]]}
-
-		append proc_body {
-			set debug "set debug_res \[}
-		append proc_body $debug_proc
-		append proc_body { $name\]; if {\[lindex \$debug_res 0\]} {return \[lindex \$debug_res 1\]};\n"
-		}
-
-		append proc_body {
-			append debug $body
-		}
-		append proc_body [subst {
-			$proc_name \$name \$args \$debug
-		}]
-
 		rename proc $proc_name
-		$proc_name proc {name args body} $proc_body
+		$proc_name proc {name args body} [subst {
+			set ::debug::PROCFILES(\$name) \[file join \[pwd\] \[info script\]\]
+			uplevel 1 \[subst {$proc_name {\$name} {\$args} {\[debug::make_proc_body $debug_proc \$name \$body\]}}\]
+		}]
 
 		set proc_defined 1
 	} else {

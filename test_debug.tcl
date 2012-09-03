@@ -109,3 +109,17 @@ proc test_switch {} {
 }
 
 debug::add_breakpoint test_switch 2
+
+proc empty_return {} {}
+
+proc test_Sc {} {
+
+	set ls {1}
+	set test_var [empty_return]
+	if {[llength $ls] == 0 || $test_var == ""} {
+		puts empty
+	}
+
+}
+
+debug::add_breakpoint test_Sc 3
