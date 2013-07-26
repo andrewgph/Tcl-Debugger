@@ -40,6 +40,18 @@ proc test_foreach {} {
 
 debug::add_breakpoint test_foreach 2
 
+proc test_foreach_2 {} {
+
+	foreach {arg1 arg2} {1 2 3 4 5 6} {
+		puts "foreach body"
+		puts $arg1
+		puts $arg2
+	}
+
+}
+
+debug::add_breakpoint test_foreach_2 2
+
 proc test_while {} {
 
 	set count 0

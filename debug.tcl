@@ -1,3 +1,19 @@
+################################################################################
+# debug.tcl
+#
+# Defines the debug procs used to interactively debug a tcl script
+#
+# The proc command is renamed at the end of this script to prepend a
+# breakpoint check at the beginning of each proc call.
+#
+# If a breakpoint is set for a proc, the proc body is parsed by
+# parsetcl.tcl and each command is checked for breakpoints. If a
+# breakpoint is reached, debug::debug_repl is used to interactively
+# step through code execution from that point.
+#
+# Depends upon parsetcl.tcl, which needs to be sourced before this script.
+################################################################################
+
 namespace eval debug {
 
 	variable BREAKPOINTS
@@ -8,6 +24,10 @@ namespace eval debug {
 	set QUEUE(count) 0
 
 }
+
+################################################################################
+# The following procs are used to evaluated the parsed tcl script
+################################################################################
 
 proc debug::debug_tree {tree} {
 	eval "debug_$tree"
@@ -56,11 +76,12 @@ proc debug::debug_Sc {interval text args} {
 		append cmd " " [eval "debug_$a"]
 	}
 
-	if {[string trim $cmd] != ""} {
-		return ${cmd}
-	} else {
-		return {[]}
-	}
+	# String trim the command in case the eval returned {}
+	# We need to do this to remove the space appended to cmd
+	set cmd [string trim $cmd]
+
+	return \{$cmd\}
+
 }
 
 proc debug::debug_Mr {interval text args} {
@@ -77,6 +98,7 @@ proc debug::debug_Mq {interval text args} {
 	return \"${result}\"
 }
 
+# Evaluate commands in the parsed tcl script
 proc debug::debug_Cd {interval text args} {
 	variable BREAKPOINTS
 	variable QUEUE
@@ -87,6 +109,8 @@ proc debug::debug_Cd {interval text args} {
 	set debug_return    $QUEUE($queue_item,return)
 	set debug_proc_name $QUEUE($queue_item,proc_name)
 
+	# Don't evaluate the command if we've already encountered a return
+	# statement in the script.
 	if {[lindex $debug_return 0]} {
 		return
 	}
@@ -94,6 +118,8 @@ proc debug::debug_Cd {interval text args} {
 	set cmd [eval "debug_[lindex $args 0]"]
 	set args [lrange $args 1 end]
 
+	# Get the line number in the proc, based upon the interval in the
+	# parsed tcl command and the proc body string.
 	set line_number [calculate_line_number $interval $debug_proc_body]
 
 	# Handle control structures
@@ -123,7 +149,7 @@ proc debug::debug_Cd {interval text args} {
 		}
 		"vwait" -
 		"after" {
-			puts "DEBUG: don't know what to do with proc_name $proc_name - will attempt evaluation"
+			show_line "DEBUG: don't know what to do with proc_name $proc_name - will attempt evaluation"
 			return [debug_repl $debug_proc_name $line_number $cmd $args]
 		}
 		default {
@@ -176,12 +202,10 @@ proc debug::_handle_if_statement {proc_name line_number proc_args} {
 
 }
 
-# Currently there's a problem with the parsetcl handling of switch statements
-# The parsing doesn't parse the switch conditions
-# for now, we just evaluate the switch statement as a whole
-# TODO! Fix the parsetcl parsing of switch statements and update this proc
 proc debug::_handle_switch_statement {proc_name line_number proc_args} {
 
+	# Identify the argument index for the last option passed to the
+	# switch command.
 	for {set i 0} {$i < [llength $proc_args]} {incr i} {
 		if {![string match "-*" [lindex [lindex $proc_args $i] 2]]} {
 			break
@@ -198,12 +222,19 @@ proc debug::_handle_switch_statement {proc_name line_number proc_args} {
 		append switch_stmt [eval "debug_$arg"] " "
 	}
 
-	append switch_stmt [eval "debug_$switch_arg"] " "
+	# Use the debug_repl to get the value of evaluating the switch arg
+	# in the uplevel of the proc being debugged. We need this as we're
+	# going to eval the switch statement in the current context, so
+	# any variable references need to be evaluated first.
+	set switch_arg_expr "set ret [eval debug_$switch_arg]"
+	set switch_arg_val [debug_repl $proc_name $line_number $switch_arg_expr {}]
+
+	append switch_stmt $switch_arg_val " "
 	set switch_display $switch_stmt
 
 	foreach {pattern condition} $condition_args {
 		append switch_stmt [eval "debug_$pattern"] " "
-		append switch_stmt "{set ret \[eval \"debug_$condition\"\]}" " "
+		append switch_stmt {{set ret [eval debug_$condition]}} " "
 	}
 
 	# Use a dummy command here to trigger the debug_repl when the
@@ -217,7 +248,6 @@ proc debug::_handle_switch_statement {proc_name line_number proc_args} {
 	# as a result of the switch command.
 
 	debug_repl $proc_name $line_number true {} "" 0 $switch_display
-
 
 	return [eval $switch_stmt]
 
@@ -245,6 +275,10 @@ proc debug::_handle_for_statement {proc_name line_number proc_args} {
 	set for_iter  [lindex $proc_args 2]
 	set for_body  [lindex $proc_args 3]
 
+	set ret {}
+
+	# Use the debug_repl to check the command every time the for check
+	# condition is evaluated.
 	for {eval "debug_$for_init"} {[debug_repl $proc_name $line_number $for_check {} "" 0 "for $for_check"]} {eval "debug_$for_iter"} {
 		set ret [eval "debug_$for_body"]
 	}
@@ -254,7 +288,10 @@ proc debug::_handle_for_statement {proc_name line_number proc_args} {
 
 proc debug::_handle_foreach_statement {proc_name line_number proc_args} {
 
-	variable debug_up_level
+	variable QUEUE
+
+	set queue_item $QUEUE(count)
+	set debug_up_level  $QUEUE($queue_item,up_level)
 
 	set foreach_arg  [lindex $proc_args 0]
 	set foreach_list [lindex $proc_args 1]
@@ -263,25 +300,39 @@ proc debug::_handle_foreach_statement {proc_name line_number proc_args} {
 	set up_level [expr {[info level]-$debug_up_level}]
 
 	set ls [eval "debug_$foreach_list"]
+	set arg [eval "debug_$foreach_arg"]
+	set arg_count [uplevel $up_level "expr {\[llength $ls]/\[llength $arg\]}"]
 
-	foreach elem $ls {
+	# Artificially loop through the list, setting the arguments as we go
+	# Need to handle the case where the argument is a list of arguments
+	# so we uplevel statements to set the arguments from values in the list.
+	for {set i 0} {$i < $arg_count} {incr i} {
+		set start_idx [uplevel $up_level "expr {$i * \[llength $arg\]}"]
+		set end_idx [uplevel $up_level "expr {($i+1) * \[llength $arg\] - 1}"]
 
-		set arg [eval "debug_$foreach_arg"]
-		set arg_command "set $arg $elem"
+		set arg_command "foreach $arg \[lrange $ls $start_idx $end_idx\] {}"
+
+		# Use a dummy command to show the debug_repl when the
+		# arguments are being set in the foreach loop
+		debug_repl $proc_name $line_number true {} "" 0 "foreach $arg $ls"
+
 		uplevel $up_level $arg_command
-
 		set ret [eval "debug_$foreach_body"]
 	}
 
 	return $ret
 }
 
+# The Rs element in the parsed tcl script it the outer wrapper element
+# for the whole script.
 proc debug::debug_Rs {interval text args} {
 	variable QUEUE
 
 	set queue_item $QUEUE(count)
 
 	foreach a $args {
+		# Stop evaluating expresions in the script if this debug point
+		# has a return value.
 		if {[lindex $QUEUE($queue_item,return) 0]} {
 			break;
 		}
@@ -292,6 +343,8 @@ proc debug::debug_Rs {interval text args} {
 
 }
 
+# Utility proc to calculate the line number of an interval within a
+# string.
 proc debug::calculate_line_number {interval string} {
 	return [expr {[regexp -all "\n" [string range $string 0 [lindex $interval 0]]]+1}]
 }
@@ -335,12 +388,10 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 	}
 
 	if {$QUEUE($queue_item,debug_repl)} {
-		puts "line $line_number: $display_cmd"
+		show_line "line $line_number: $display_cmd"
 		set get_user_input 1
 		while {$get_user_input} {
-			puts -nonewline "$filename:$proc_name:$line_number>"
-			flush stdout
-			gets stdin user_command
+			set user_command [_get_repl_input $filename $proc_name $line_number]
 
 			switch -glob -- $user_command {
 				"help" {
@@ -375,7 +426,7 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 				"add_breakpoint *" {
 					set words [regexp -inline -all -- {\S+} $user_command]
 					if {[llength $words] != 3} {
-						puts "Usage: add_breakpoint proc_name line_number"
+						show_line "Usage: add_breakpoint proc_name line_number"
 						continue
 					}
 					set breakpoint_proc_name   [lindex $words 1]
@@ -385,7 +436,7 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 				"remove_breakpoint *" {
 					set words [regexp -inline -all -- {\S+} $user_command]
 					if {[llength $words] != 3} {
-						puts "Usage: remove_breakpoint proc_name line_number"
+						show_line "Usage: remove_breakpoint proc_name line_number"
 						continue
 					}
 					set breakpoint_proc_name   [lindex $words 1]
@@ -394,51 +445,79 @@ proc debug::debug_repl {proc_name line_number cmd args {step_into_proc ""} {is_r
 				}
 				"filepath" {
 					if {[info exists PROCFILES($proc_name)]} {
-						puts $PROCFILES($proc_name)
+						show_line $PROCFILES($proc_name)
 					} else {
-						puts "not available"
+						show_line "not available"
 					}
 				}
+				"parray *" {
+					# Rewrite puts and parray proc requests to val
+					# displays, so that the show_line proc can display
+					# the value.
+					set array_name [string trim [string range $user_command [string wordend $user_command 0] end]]
+					set user_command [subst {set debug_parray_c19d5f864c9d2 {}; foreach name \[array names $array_name\] {append debug_parray_c19d5f864c9d2 "${array_name}(\$name) = \$${array_name}(\$name)" "\n"}; set debug_parray_c19d5f864c9d2}]
+					_repl_up_level $up_level $user_command
+				}
+				"puts *" {
+					set user_command "set debug_puts_c19d5f864c9d2 [string range $user_command [string wordend $user_command 0] end]"
+					_repl_up_level $up_level $user_command
+				}
 				default {
-					if {[catch {
-						set val [uplevel $up_level $user_command]
-					} msg]} {
-						puts $msg
-					} else {
-						puts $val
-					}
+					_repl_up_level $up_level $user_command
 				}
 			}
 		}
 	}
 
+	# If the command being debugged is a return statement, get the
+	# result of the return statement
 	if {$is_return} {
 		set ret_command {set ret }
 		set ret_command [append ret_command "[string range $cmd 6 end]"]
 	} else {
-		set ret_command "set ret \[$cmd\]"
+		set ret_command "set debug_return_c19d5f864c9d2 \[$cmd\]"
 	}
 	set ret [uplevel $up_level $ret_command]
 	return $ret
 
 }
 
-proc debug::show_repl_usage {} {
-	puts "Available commands are:"
-	puts "* step"
-	puts "* continue"
-	puts "* step_into"
-	puts "* add_breakpoint <proc_name> <line_number>"
-	puts "* remove_breakpoint <proc_name> <line_number>"
-	puts "* filepath (shows absolute path of the file that the proc is sourced from)"
-	puts "Anything else is evaluated using uplevel in the context of the proc being debugged."
+# Evaluate an expression at a particular up level and show the user
+# either the result or the error message
+# up_level argument is relative to the calling proc (not this proc)
+proc debug::_repl_up_level {up_level user_command} {
+	# increment the uplevel to account for this proc
+	incr up_level
+	if {[catch {
+		set val [uplevel $up_level $user_command]
+	} msg]} {
+		show_line $msg
+	} else {
+		show_line $val
+	}
 }
 
+proc debug::show_repl_usage {} {
+	show_line "Available commands are:"
+	show_line "* step"
+	show_line "* continue"
+	show_line "* step_into"
+	show_line "* add_breakpoint <proc_name> <line_number>"
+	show_line "* remove_breakpoint <proc_name> <line_number>"
+	show_line "* filepath (shows absolute path of the file that the proc is sourced from)"
+	show_line "Anything else is evaluated using uplevel in the context of the proc being debugged."
+}
+
+# The proc command is renamed at the end of debug.tcl so that
+# debug_proc is evaluated at the beginning of every proc call. This
+# allows us to intercept the proc calls, check for breakpoints and
+# step through code execution if a breakpoint is set.
 proc debug::debug_proc {name} {
 
 	variable BREAKPOINTS
 	variable QUEUE
 
+	# Let the proc evaluate as normal if no breakpoints are set in the proc.
 	if {[lsearch $BREAKPOINTS(procs) $name] == -1} {
 		return {0 {}}
 	}
@@ -451,11 +530,15 @@ proc debug::debug_proc {name} {
 		set debug_repl 0
 	}
 
-	set body_commands [split [info body $name] "\n"]
+	set body_commands [split [uplevel #0 info body $name] "\n"]
 
 	# Remove any lines at the beginning of the proc which begin with
 	# 'set debug_res', these have been added by the debug redefinition
 	# of the proc command.
+	# TODO is there a better way of adding and removing these lines?
+	# This wouldn't play well with anything else that added additional
+	# lines to the beginning of the proc (an edge case, but a
+	# possibility)
 	while {[string match "set debug_res*debug::*debug_proc*" [lindex $body_commands 0]]} {
 		set body_commands [lrange $body_commands 1 end]
 	}
@@ -466,6 +549,7 @@ proc debug::debug_proc {name} {
 		set body_commands [lrange $body_commands 1 end]
 	}
 
+	# Use parsetcl.tcl to get the parse tree of the tcl script.
 	set debug_proc_body [join $body_commands "\n"]
 	set body_parsed [parsetcl::simple_parse_script $debug_proc_body]
 
@@ -523,10 +607,45 @@ proc debug::remove_breakpoint {proc_name line_number} {
 	}
 }
 
+proc debug::_breakpoint_commands {input} {
+
+	switch -glob -- $input {
+		"add_breakpoint *" {
+			set words [regexp -inline -all -- {\S+} $input]
+			if {[llength $words] == 3} {
+				set breakpoint_proc_name   [lindex $words 1]
+				set breakpoint_line_number [lindex $words 2]
+				debug::add_breakpoint $breakpoint_proc_name $breakpoint_line_number
+			}
+		}
+		"remove_breakpoint *" {
+			set words [regexp -inline -all -- {\S+} $input]
+			if {[llength $words] == 3} {
+				set breakpoint_proc_name   [lindex $words 1]
+				set breakpoint_line_number [lindex $words 2]
+				debug::remove_breakpoint $breakpoint_proc_name $breakpoint_line_number
+			}
+		}
+	}
+}
+
+# Get user input, either from the debug router or stdin
+proc debug::_get_repl_input {filename proc_name line_number} {
+	puts -nonewline "$filename:$proc_name:$line_number>"
+	flush stdout
+	gets stdin repl_input
+	return $repl_input
+}
+
+proc debug::show_line {line} {
+	puts $line
+}
+
+# Prepend the debug_proc calls to the proc body
 proc debug::make_proc_body {debug_proc name body} {
 
-	set proc_body [subst {set debug_res \[$debug_proc {$name}\];}]
-	append proc_body {if {[lindex $debug_res 0]} {return [lindex $debug_res 1]};
+	set proc_body [subst {set debug_result_c19d5f864c9d2 \[$debug_proc {$name}\];}]
+	append proc_body {if {[lindex $debug_result_c19d5f864c9d2 0]} {return [lindex $debug_result_c19d5f864c9d2 1]};
 	}
 	append proc_body $body
 
